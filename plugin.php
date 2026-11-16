@@ -173,8 +173,23 @@ function mailchimp_api_plugin_options_page()
                     </tr>
                     <tr valign="top">
                         <th scope="row">Post Type To Send</th>
-                        <td><input type="text" name="mailchimp_post_type"
-                                value="<?php echo esc_attr(get_option('mailchimp_post_type')); ?>" /></td>
+                        <td>
+                            <select name="mailchimp_post_type">
+                                <?php
+                                $mailchimp_post_type = get_option('mailchimp_post_type');
+                                $post_types = get_post_types(['public' => true], 'objects');
+                                unset($post_types['attachment']);
+                                foreach ($post_types as $post_type) {
+                                    printf(
+                                        '<option value="%s" %s>%s</option>',
+                                        esc_attr($post_type->name),
+                                        selected($mailchimp_post_type, $post_type->name, false),
+                                        esc_html($post_type->labels->name)
+                                    );
+                                }
+                                ?>
+                            </select>
+                        </td>
                     </tr>
                 </table>
                 <?php submit_button('Save Settings', 'primary', 'submit'); ?>
