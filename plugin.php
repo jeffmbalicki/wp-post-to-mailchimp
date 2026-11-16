@@ -47,7 +47,6 @@ function mailchimp_api_plugin_register_settings()
     register_setting('mailchimp-api-settings-group', 'mailchimp_from_name');
     register_setting('mailchimp-api-settings-group', 'mailchimp_reply_to');
     register_setting('mailchimp-api-settings-group', 'mailchimp_template_id');
-    register_setting('mailchimp-api-settings-group', 'mailchimp_fr_template_id');
     register_setting('mailchimp-api-settings-group', 'mailchimp_post_type');
 
 }
@@ -64,9 +63,9 @@ function mailchimp_api_check($api_key, $server)
         $client = new MailchimpAPI();
         $data = $client->verify_mailchimp_api_settings();
         if ($data['status'] === true) {
-            echo '<div class="updated"><h3 style="color:#fff;">Successfully verified Mailchimp API key.</h3><p>Please fill in settings below</div>';
+            echo '<div class="updated"><h3>Successfully verified Mailchimp API key.</h3><p>Please fill in settings below</div>';
         } else {
-            echo '<div class="error notice notice-error" ><h3 style="color:#fff;">Failed to verify Mailchimp API key.<h3><p style="color:#fff;">' . esc_html($data['message']) . '</p></div>';
+            echo '<div class="error notice notice-error" ><h3>Failed to verify Mailchimp API key.<h3><p style="color:#fff;">' . esc_html($data['message']) . '</p></div>';
         }
     }
 
@@ -89,17 +88,19 @@ function mailchimp_api_plugin_options_page()
 
         $list_id = sanitize_text_field($_POST['mailchimp_list_id']);
         $from_name = sanitize_text_field($_POST['mailchimp_from_name']);
-        $reply_to = sanitize_text_field($_POST['mailchimp_reply_to']);
+        $reply_to = sanitize_email($_POST['mailchimp_reply_to']);
         $template_id = sanitize_text_field($_POST['mailchimp_template_id']);
-        $fr_template_id = sanitize_text_field($_POST['mailchimp_fr_template_id']);
         $mailchimp_post_type = sanitize_text_field($_POST['mailchimp_post_type']);
 
-        update_option('mailchimp_list_id', $list_id);
-        update_option('mailchimp_from_name', $from_name);
-        update_option('mailchimp_reply_to', $reply_to);
-        update_option('mailchimp_template_id', $template_id);
-        update_option('mailchimp_fr_template_id', $fr_template_id);
-        update_option('mailchimp_post_type', $mailchimp_post_type);
+        if (!is_email($reply_to)) {
+            echo '<div class="notice notice-error"><p>Enter a valid Reply To email address.</p></div>';
+        } else {
+            update_option('mailchimp_list_id', $list_id);
+            update_option('mailchimp_from_name', $from_name);
+            update_option('mailchimp_reply_to', $reply_to);
+            update_option('mailchimp_template_id', $template_id);
+            update_option('mailchimp_post_type', $mailchimp_post_type);
+        }
     }
     ?>
 
@@ -154,21 +155,17 @@ function mailchimp_api_plugin_options_page()
                         <td><?php $client->mailchimp_api_get_lists(); ?></td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row">English Template</th>
+                        <th scope="row">Template</th>
                         <td><?php $client->mailchimp_api_get_templates('mailchimp_template_id'); ?></td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row">French Template</th>
-                        <td><?php $client->mailchimp_api_get_templates('mailchimp_fr_template_id'); ?></td>
-                    </tr>
-                    <tr valign="top">
                         <th scope="row">From Name</th>
-                        <td><input type="text" name="mailchimp_from_name"
+                        <td><input type="text" name="mailchimp_from_name" required
                                 value="<?php echo esc_attr(get_option('mailchimp_from_name')); ?>" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row">Reply To</th>
-                        <td><input type="text" name="mailchimp_reply_to"
+                        <td><input type="email" name="mailchimp_reply_to" required
                                 value="<?php echo esc_attr(get_option('mailchimp_reply_to')); ?>" /></td>
                     </tr>
                     <tr valign="top">
