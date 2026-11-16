@@ -1,7 +1,9 @@
 <?php
 
 add_action('add_meta_boxes', 'register_mailchimp_send_meta_box');
+add_action('add_meta_boxes', 'register_mailchimp_content_sections_meta_box');
 add_action('save_post', 'send_newsletter', 10, 3);
+add_action('save_post', 'save_mailchimp_content_section_values', 9, 2);
 add_action('admin_notices', 'mailchimp_campaign_error_notice');
 add_action('enqueue_block_editor_assets', 'mailchimp_enqueue_editor_error_check');
 add_action('wp_ajax_mailchimp_get_campaign_error', 'mailchimp_get_campaign_error');
@@ -113,6 +115,93 @@ function register_mailchimp_send_meta_box()
     );
 }
 
+function register_mailchimp_content_sections_meta_box()
+{
+    $post_type = get_option('mailchimp_post_type');
+    $content_sections = get_option('mailchimp_content_sections', []);
+    if (!$post_type || !is_array($content_sections) || !$content_sections) {
+        return;
+    }
+
+    add_meta_box(
+        'mailchimp_content_sections',
+        'Mailchimp Content Sections',
+        'display_mailchimp_content_sections_meta_box',
+        $post_type,
+        'normal',
+        'high'
+    );
+}
+
+function display_mailchimp_content_sections_meta_box($post)
+{
+    $content_sections = get_option('mailchimp_content_sections', []);
+    $section_values = get_post_meta($post->ID, '_mailchimp_content_section_values', true);
+    if (!is_array($content_sections) || !is_array($section_values)) {
+        $section_values = [];
+    }
+
+    wp_nonce_field('save_mailchimp_content_section_values', 'mailchimp_content_sections_nonce');
+
+    foreach ($content_sections as $index => $section) {
+        if (!is_array($section) || empty($section['section_name'])) {
+            continue;
+        }
+
+        $section_name = $section['section_name'];
+        $label = !empty($section['label']) ? $section['label'] : $section_name;
+        $value = isset($section_values[$section_name]) ? $section_values[$section_name] : $post->post_content;
+        ?>
+        <p>
+            <label for="mailchimp-content-section-<?php echo esc_attr($index); ?>">
+                <strong><?php echo esc_html($label); ?></strong>
+                <small>(<?php echo esc_html($section_name); ?>)</small>
+            </label>
+            <textarea class="widefat" rows="5"
+                id="mailchimp-content-section-<?php echo esc_attr($index); ?>"
+                name="mailchimp_content_section_values[<?php echo esc_attr($index); ?>]"><?php echo esc_textarea($value); ?></textarea>
+        </p>
+        <?php
+    }
+}
+
+function save_mailchimp_content_section_values($post_id, $post)
+{
+    if (
+        wp_is_post_revision($post_id)
+        || wp_is_post_autosave($post_id)
+        || $post->post_type !== get_option('mailchimp_post_type')
+        || !current_user_can('edit_post', $post_id)
+        || !isset($_POST['mailchimp_content_sections_nonce'])
+        || !wp_verify_nonce(
+            sanitize_text_field(wp_unslash($_POST['mailchimp_content_sections_nonce'])),
+            'save_mailchimp_content_section_values'
+        )
+    ) {
+        return;
+    }
+
+    $content_sections = get_option('mailchimp_content_sections', []);
+    $submitted_values = isset($_POST['mailchimp_content_section_values']) && is_array($_POST['mailchimp_content_section_values'])
+        ? wp_unslash($_POST['mailchimp_content_section_values'])
+        : [];
+    $section_values = [];
+
+    if (is_array($content_sections)) {
+        foreach ($content_sections as $index => $section) {
+            if (!is_array($section) || empty($section['section_name'])) {
+                continue;
+            }
+
+            $section_values[$section['section_name']] = isset($submitted_values[$index])
+                ? wp_kses_post($submitted_values[$index])
+                : '';
+        }
+    }
+
+    update_post_meta($post_id, '_mailchimp_content_section_values', $section_values);
+}
+
 function display_mailchimp_send_settings($post)
 {
     wp_nonce_field('save_mailchimp_send_settings', 'mailchimp_send_settings_nonce');
@@ -202,13 +291,28 @@ function send_newsletter($post_id, $post, $update)
             'content_type' => 'template',
         ];
 
+        $contentSections = get_option('mailchimp_content_sections', []);
+        $sectionValues = get_post_meta($post_id, '_mailchimp_content_section_values', true);
+        $templateSections = [];
+
+        if (is_array($contentSections)) {
+            foreach ($contentSections as $section) {
+                if (!is_array($section) || empty($section['section_name'])) {
+                    continue;
+                }
+
+                $templateSections[$section['section_name']] = (
+                    is_array($sectionValues) && isset($sectionValues[$section['section_name']])
+                ) ? $sectionValues[$section['section_name']] : $post->post_content;
+            }
+        }
+        $templateSections['body_content'] = $post->post_content;
+
         $contentData = [
             "plain_text" => $post->post_title,
             "template" => [
                 "id" => $template_id,
-                "sections" => [
-                    "content" => $post->post_content,
-                ],
+                "sections" => $templateSections,
             ],
         ];
 

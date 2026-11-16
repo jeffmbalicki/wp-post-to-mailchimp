@@ -48,6 +48,7 @@ function mailchimp_api_plugin_register_settings()
     register_setting('mailchimp-api-settings-group', 'mailchimp_reply_to');
     register_setting('mailchimp-api-settings-group', 'mailchimp_template_id');
     register_setting('mailchimp-api-settings-group', 'mailchimp_post_type');
+    register_setting('mailchimp-api-settings-group', 'mailchimp_content_sections');
 
 }
 
@@ -75,7 +76,37 @@ function mailchimp_api_check($api_key, $server)
 // Display options page
 function mailchimp_api_plugin_options_page()
 {
-    if (isset($_POST['submit']) && !empty($_POST['mailchimp_api_key'])) {
+    if (isset($_POST['mailchimp_save_content_sections'])) {
+        check_admin_referer('save_mailchimp_content_sections');
+
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You are not allowed to manage these settings.', 'wp-post-to-mailchimp'));
+        }
+
+        $content_sections = isset($_POST['mailchimp_content_sections']) && is_array($_POST['mailchimp_content_sections'])
+            ? wp_unslash($_POST['mailchimp_content_sections'])
+            : [];
+        $sanitized_content_sections = [];
+
+        foreach ($content_sections as $section) {
+            if (!is_array($section)) {
+                continue;
+            }
+
+            $label = isset($section['label']) ? sanitize_text_field($section['label']) : '';
+            $section_name = isset($section['section_name']) ? sanitize_text_field($section['section_name']) : '';
+            if ($label === '' || $section_name === '') {
+                continue;
+            }
+
+            $sanitized_content_sections[] = [
+                'label' => $label,
+                'section_name' => $section_name,
+            ];
+        }
+
+        update_option('mailchimp_content_sections', $sanitized_content_sections);
+    } elseif (isset($_POST['submit']) && !empty($_POST['mailchimp_api_key'])) {
         $api_key = sanitize_text_field($_POST['mailchimp_api_key']);
         $server = sanitize_text_field($_POST['mailchimp_server']);
 
@@ -100,6 +131,7 @@ function mailchimp_api_plugin_options_page()
             update_option('mailchimp_reply_to', $reply_to);
             update_option('mailchimp_template_id', $template_id);
             update_option('mailchimp_post_type', $mailchimp_post_type);
+            update_option('mailchimp_settings_saved', true);
         }
     }
     ?>
@@ -131,6 +163,7 @@ function mailchimp_api_plugin_options_page()
 </div>
     <?php
     $api_key = get_option('mailchimp_api_key');
+    $mailchimp_settings_saved = (bool) get_option('mailchimp_settings_saved');
     $server = MailchimpAPI::get_server_prefix($api_key, get_option('mailchimp_server'));
     $verification = [
         'status' => false,
@@ -193,6 +226,76 @@ function mailchimp_api_plugin_options_page()
             </form>
         </div>
         </div>
+        <?php if ($mailchimp_settings_saved) { ?>
+            <?php
+            $content_sections = get_option('mailchimp_content_sections', []);
+            if (!is_array($content_sections)) {
+                $content_sections = [];
+            }
+            ?>
+            <div class="stuffbox">
+                <div class="wrap" style="padding:20px;">
+                    <h2>Content Sections</h2>
+                    <form method="post" action="">
+                        <?php wp_nonce_field('save_mailchimp_content_sections'); ?>
+                        <p>Add the content sections from your Mailchimp template. For each section added meta data will be used to populate the content on the post.</p>
+                        <table class="form-table" id="mailchimp-content-sections">
+                            <tbody>
+                                <?php foreach ($content_sections as $index => $section) {
+                                    if (!is_array($section)) {
+                                        continue;
+                                    }
+                                    $label = isset($section['label']) ? $section['label'] : '';
+                                    $section_name = isset($section['section_name']) ? $section['section_name'] : '';
+                                    ?>
+                                    <tr>
+                                     <td>
+                                       <label>Label  </label>
+                                    
+                                            <input type="text" name="mailchimp_content_sections[<?php echo esc_attr($index); ?>][label]"
+                                                value="<?php echo esc_attr($label); ?>" />
+                                            <label>Section name  </label>
+                                                <input type="text" name="mailchimp_content_sections[<?php echo esc_attr($index); ?>][section_name]"
+                                                    value="<?php echo esc_attr($section_name); ?>" />
+                                            
+                                            <button type="button" class="button mailchimp-remove-content-section">Remove</button>
+                                        </td>
+                                    </tr>
+                                <?php } ?>
+                            </tbody>
+                        </table>
+                        <p><button type="button" class="button" id="mailchimp-add-content-section">Add content section</button></p>
+                        <?php submit_button('Save Content Sections', 'primary', 'mailchimp_save_content_sections'); ?>
+                    </form>
+                </div>
+            </div>
+            <script>
+                (function () {
+                    var table = document.getElementById('mailchimp-content-sections');
+                    var addButton = document.getElementById('mailchimp-add-content-section');
+                    if (!table || !addButton) {
+                        return;
+                    }
+
+                    var nextIndex = table.querySelectorAll('tbody tr').length;
+                    addButton.addEventListener('click', function () {
+                        var row = table.querySelector('tbody').insertRow();
+                        row.innerHTML =
+                            '<td><label>Label  </label>' +
+                            '<input type="text" name="mailchimp_content_sections[' + nextIndex + '][label]" /> ' +
+                            '<label>Section name   <input type="text" name="mailchimp_content_sections[' + nextIndex + '][section_name]" /></label> ' +
+                            '<button type="button" class="button mailchimp-remove-content-section">Remove</button></td>';
+                        nextIndex++;
+                    });
+
+                    table.addEventListener('click', function (event) {
+                        if (event.target.classList.contains('mailchimp-remove-content-section')) {
+                            event.target.closest('tr').remove();
+                        }
+                    });
+                }());
+            </script>
+        <?php } ?>
     <?php } else { ?>
         <div class="notice notice-warning">
             <p><?php echo esc_html($verification['message']); ?></p>
