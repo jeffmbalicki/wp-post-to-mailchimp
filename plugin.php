@@ -56,16 +56,17 @@ function mailchimp_api_plugin_register_settings()
 // Display options page
 function mailchimp_api_check($api_key, $server)
 {
+    $server = MailchimpAPI::get_server_prefix($api_key, $server);
 
     if (empty($api_key) || empty($server)) {
-        echo '<div class="error"><p>Both fields are required.</p></div>';
+        echo '<div class="error"><p>Enter a Mailchimp API key and a valid server prefix (for example, usX), or use an API key that includes its server suffix.</p></div>';
     } else {
         $client = new MailchimpAPI();
         $data = $client->verify_mailchimp_api_settings();
         if ($data['status'] === true) {
             echo '<div class="updated"><h3 style="color:#fff;">Successfully verified Mailchimp API key.</h3><p>Please fill in settings below</div>';
         } else {
-            echo '<div class="error notice notice-error" ><h3 style="color:#fff;">Failed to verify Mailchimp API key.<h3><p style="color:#fff;">' . $data['message'] . '</p></div>';
+            echo '<div class="error notice notice-error" ><h3 style="color:#fff;">Failed to verify Mailchimp API key.<h3><p style="color:#fff;">' . esc_html($data['message']) . '</p></div>';
         }
     }
 
@@ -119,7 +120,7 @@ function mailchimp_api_plugin_options_page()
                 </tr>
                 <tr valign="top">
                     <th scope="row">Server Prefix</th>
-                    <td><input type="text" name="mailchimp_server"
+                    <td><input type="text" name="mailchimp_server" placeholder="usX"
                             value="<?php echo esc_attr(get_option('mailchimp_server')); ?>" /></td>
                 </tr>
             </table>
@@ -128,9 +129,18 @@ function mailchimp_api_plugin_options_page()
     </div>
 </div>
     <?php
-    $client = new MailchimpAPI();
-    $valid = $client->verify_mailchimp_api_settings(); ?>
-    <?php if ($valid['status']) { ?>
+    $api_key = get_option('mailchimp_api_key');
+    $server = MailchimpAPI::get_server_prefix($api_key, get_option('mailchimp_server'));
+    $verification = [
+        'status' => false,
+        'message' => 'Enter a Mailchimp API key and server prefix to load the remaining settings. The server prefix is usually included at the end of the API key (for example, -usX).',
+    ];
+    if (!empty($api_key) && !empty($server)) {
+        $client = new MailchimpAPI();
+        $verification = $client->verify_mailchimp_api_settings();
+    }
+    ?>
+    <?php if ($verification['status']) { ?>
         <div class="stuffbox">
         <div class="wrap" style="padding:20px;">
             <h2>Mailchimp API Settings</h2>
@@ -170,6 +180,10 @@ function mailchimp_api_plugin_options_page()
                 <?php submit_button('Save Settings', 'primary', 'submit'); ?>
             </form>
         </div>
+        </div>
+    <?php } else { ?>
+        <div class="notice notice-warning">
+            <p><?php echo esc_html($verification['message']); ?></p>
         </div>
         <?php
     }

@@ -34,11 +34,28 @@ class MailchimpAPI
 
     public function __construct()
     {
+        $apiKey = trim((string) get_option('mailchimp_api_key'));
+        $server = self::get_server_prefix($apiKey, get_option('mailchimp_server'));
+
         $this->client = new ApiClient();
         $this->client->setConfig([
-            'apiKey' => get_option('mailchimp_api_key'),
-            'server' => get_option('mailchimp_server'),
+            'apiKey' => $apiKey,
+            'server' => $server,
         ]);
+    }
+
+    public static function get_server_prefix($apiKey, $server)
+    {
+        $server = strtolower(trim((string) $server));
+        if ($server !== '') {
+            return $server;
+        }
+
+        if (preg_match('/-([a-z]{2}\d+)$/i', trim((string) $apiKey), $matches)) {
+            return strtolower($matches[1]);
+        }
+
+        return '';
     }
 
 
@@ -53,9 +70,15 @@ class MailchimpAPI
             $response = $e->getResponse();
             $responseBodyAsString = $response->getBody()->getContents();
             $errorResponse = json_decode($responseBodyAsString);
-            $return['status'] = false;
-            $return['message'] = $errorResponse->detail;
-            return $return;
+            return [
+                'status' => false,
+                'message' => $errorResponse->detail ?? 'Mailchimp rejected the API credentials.',
+            ];
+        } catch (GuzzleHttp\Exception\ConnectException $e) {
+            return [
+                'status' => false,
+                'message' => 'Could not connect to Mailchimp. Check the server prefix and your network connection.',
+            ];
         }
     }
 

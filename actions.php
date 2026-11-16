@@ -1,19 +1,30 @@
 <?php
 
-add_meta_box(
-    'mailchimp_segments', // ID of the metabox
-    'Mailchimp Send', // Title of the metabox
-    'display_mailchimp_send_settings', // Callback function
-    get_option('mailchimp_post_type'), // Screen(s) on which to show the box
-    'side',
-    'high'
-);
-
+add_action('add_meta_boxes', 'register_mailchimp_send_meta_box');
 add_action('save_post', 'send_newsletter', 10, 3);
 add_filter('update_to_mailchip', 'update_to_mailchip_callback', 1, 1);
 add_filter('update_tags_to_mailchip', 'update_tags_to_mailchip_callback', 1, 1);
+
+function register_mailchimp_send_meta_box()
+{
+    $post_type = get_option('mailchimp_post_type');
+    if (!$post_type) {
+        return;
+    }
+
+    add_meta_box(
+        'mailchimp_segments',
+        'Mailchimp Send',
+        'display_mailchimp_send_settings',
+        $post_type,
+        'side',
+        'high'
+    );
+}
+
 function display_mailchimp_send_settings($post)
 {
+    wp_nonce_field('save_mailchimp_send_settings', 'mailchimp_send_settings_nonce');
 
     $saved_tags = get_post_meta($post->ID, 'saved_segments', true);
     $send = get_post_meta($post->ID, 'send', true);
@@ -42,63 +53,76 @@ function display_mailchimp_send_settings($post)
 
 function send_newsletter($post_id, $post, $update)
 {
+    if (
+        wp_is_post_revision($post_id)
+        || wp_is_post_autosave($post_id)
+        || $post->post_type !== get_option('mailchimp_post_type')
+        || !current_user_can('edit_post', $post_id)
+        || !isset($_POST['mailchimp_send_settings_nonce'])
+        || !wp_verify_nonce(
+            sanitize_text_field(wp_unslash($_POST['mailchimp_send_settings_nonce'])),
+            'save_mailchimp_send_settings'
+        )
+    ) {
+        return;
+    }
 
-    update_post_meta($post_id, 'saved_segments', $_POST['segments']);
+    if (isset($_POST['segments'])) {
+        update_post_meta($post_id, 'saved_segments', absint(wp_unslash($_POST['segments'])));
+    }
     $send = isset($_POST['send']) ? 1 : 0;
     update_post_meta($post_id, 'send', $send);
-    if (!wp_is_post_revision($post_id) && $post->post_type == get_option('mailchimp_post_type')) {
 
 
-        if (class_exists('MailchimpAPI\MailchimpCampaignCreator')) {
+    if (class_exists('MailchimpAPI\MailchimpCampaignCreator')) {
 
-            if (!get_post_meta($post_id, 'send', true)) {
-                return;
-            }
-
-            if (get_post_meta($post_id, 'sent', true) != "") {
-                return;
-            }
-            if (apply_filters('wpml_current_language', NULL) == 'fr') {
-                $template_id = intval(get_option('mailchimp_fr_template_id'));
-            } else {
-                $template_id = intval(get_option('mailchimp_template_id'));
-            }
-
-            $campaignCreator = new MailchimpAPI\MailchimpCampaignCreator();
-            $listId = get_option('mailchimp_list_id');
-
-            $campaignData = [
-                'recipients' => [
-                    'list_id' => $listId,
-                    'segment_opts' => [
-                        'saved_segment_id' => intval(get_post_meta($post_id, 'saved_segments', true)),
-                    ],
-                ],
-                'settings' => [
-                    'subject_line' => $post->post_title,
-                    'title' => $post->post_title,
-                    'from_name' => get_option('mailchimp_from_name'),
-                    'reply_to' => get_option('mailchimp_reply_to'),
-                    'template_id' => $template_id,
-                    'inline_css' => true,
-                ],
-                'type' => 'regular',
-                'content_type' => 'template',
-            ];
-
-            $contentData = [
-                "plain_text" => $post->post_title,
-                "template" => [
-                    "id" => $template_id,
-                    "sections" => [
-                        "content" => $post->post_content,
-                    ],
-                ],
-            ];
-
-            $campaignCreator->createCampaign($campaignData, $contentData);
-            update_post_meta($post_id, 'sent', date('Y-m-d H:i:s'));
+        if (!get_post_meta($post_id, 'send', true)) {
+            return;
         }
+
+        if (get_post_meta($post_id, 'sent', true) != "") {
+            return;
+        }
+        if (apply_filters('wpml_current_language', NULL) == 'fr') {
+            $template_id = intval(get_option('mailchimp_fr_template_id'));
+        } else {
+            $template_id = intval(get_option('mailchimp_template_id'));
+        }
+
+        $campaignCreator = new MailchimpAPI\MailchimpCampaignCreator();
+        $listId = get_option('mailchimp_list_id');
+
+        $campaignData = [
+            'recipients' => [
+                'list_id' => $listId,
+                'segment_opts' => [
+                    'saved_segment_id' => intval(get_post_meta($post_id, 'saved_segments', true)),
+                ],
+            ],
+            'settings' => [
+                'subject_line' => $post->post_title,
+                'title' => $post->post_title,
+                'from_name' => get_option('mailchimp_from_name'),
+                'reply_to' => get_option('mailchimp_reply_to'),
+                'template_id' => $template_id,
+                'inline_css' => true,
+            ],
+            'type' => 'regular',
+            'content_type' => 'template',
+        ];
+
+        $contentData = [
+            "plain_text" => $post->post_title,
+            "template" => [
+                "id" => $template_id,
+                "sections" => [
+                    "content" => $post->post_content,
+                ],
+            ],
+        ];
+
+        $campaignCreator->createCampaign($campaignData, $contentData);
+        update_post_meta($post_id, 'sent', date('Y-m-d H:i:s'));
     }
 }
 
